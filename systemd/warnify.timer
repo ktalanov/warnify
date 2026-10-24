@@ -1,0 +1,11 @@
+[Unit]
+Description=warnify - Run journal warning monitor every minute
+After=network.target
+
+[Timer]
+OnCalendar=*:0/1
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

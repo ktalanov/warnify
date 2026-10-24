@@ -1,0 +1,12 @@
+[Unit]
+Description=warnify - Privileged journal warning monitor
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/lenin/github/warnify/warnify.sh --once
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

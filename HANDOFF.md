@@ -1,13 +1,13 @@
-# Handoff — warnify
+# warnify handoff
 
-## Current state
+## Unfinished work
 
-No active handoff has been recorded. Inspect the current branch, worktree, and project plan before adding state here.
+All v0.1.0 tasks in `PLAN.md` are completed and verified passing.
+Optional future enhancements deferred to v0.2.0 are recorded in `PLAN.md` under the Deferred Items Ledger (DEF-001: regex filter list, DEF-002: sound chime, DEF-003: Gum interactive TUI log viewer).
 
-## Verification evidence
+## Current evidence
 
-No check results have been recorded in this document.
-
-## Open work and next action
-
-Record unfinished work, owner, blockers, and the next concrete action when a handoff is needed.
+- Automated test suite `test_warnify.sh`: 16/16 tests pass.
+- Systemd units verified via `systemd-analyze verify systemd/warnify.service systemd/warnify.timer` (valid syntax).
+- Local user symlink `~/.local/bin/,warnify.sh` created and functional.
+- Live journal inspection verified via `./warnify.sh --dry-run`.
