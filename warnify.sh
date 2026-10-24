@@ -4,22 +4,28 @@
 # License: MIT
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ICON_FILE="${SCRIPT_DIR}/assets/penguin.png"
 
 # Defaults
 DEFAULT_PRIORITY="0..4" # emerg, alert, crit, err, warning
 if [[ $(id -u) -eq 0 ]]; then
-  DEFAULT_CURSOR_FILE="/var/lib/warnify/cursor"
+  DEFAULT_STATE_DIR="/var/lib/warnify"
 else
-  DEFAULT_CURSOR_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/warnify/cursor"
+  DEFAULT_STATE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/warnify"
 fi
 
-CURSOR_FILE="${DEFAULT_CURSOR_FILE}"
+STATE_DIR="${DEFAULT_STATE_DIR}"
+CURSOR_FILE="${STATE_DIR}/cursor"
+BOOT_FILE="${STATE_DIR}/boot_id"
 PRIORITY="${DEFAULT_PRIORITY}"
 DRY_RUN=false
 ONCE_MODE=true
+DAEMON_MODE=false
+FORCE_BOOT_SWEEP=false
+INTERVAL_SECS=120
+SCAN_WINDOW="3 minutes ago" # 2 minutes cadence + 1 minute buffer
 
 # Helper: Print usage
 usage() {
@@ -32,18 +38,21 @@ Options:
   -h, --help               Show this help message and exit
   -v, --version            Display version information (v${VERSION})
   -o, --once               Run a single log scan cycle and exit (default)
+  -D, --daemon             Run continuously as a foreground daemon (scans every 2 minutes)
   -d, --dry-run            Scan logs and print matching events to stdout without notifying or advancing cursor
-  -c, --cursor-file <FILE> Path to cursor state file (default: ${DEFAULT_CURSOR_FILE})
+  -b, --boot-sweep         Force a full boot sweep of all warnings since system boot
+  -c, --cursor-file <FILE> Path to cursor state file (default: ${CURSOR_FILE})
+      --state-dir <DIR>    Directory for cursor and boot state (default: ${STATE_DIR})
       --priority <LEVEL>   Journalctl priority range (default: ${DEFAULT_PRIORITY})
       --status             Show systemd timer, service, and cursor status
-      --install-systemd    Install and activate systemd service and 1-minute timer (requires root/sudo)
+      --install-systemd    Install and activate systemd service and 2-minute timer (requires root/sudo)
       --uninstall-systemd  Stop, disable, and remove systemd service and timer (requires root/sudo)
       --print-systemd-units Print systemd service and timer unit definitions
       --view <CURSOR>      Launch privileged journal log viewer focused on cursor
 
 Examples:
   warnify --dry-run
-  warnify --cursor-file /tmp/mycursor
+  warnify --boot-sweep --dry-run
   sudo warnify --install-systemd
 EOF
 }
@@ -64,6 +73,51 @@ check_deps() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     echo "Warning: missing recommended tools: ${missing[*]}" >&2
   fi
+}
+
+# Helper: Get system uptime in seconds
+get_uptime_seconds() {
+  if [[ -f /proc/uptime ]]; then
+    awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 9999
+  else
+    echo 9999
+  fi
+}
+
+# Helper: Get system boot ID
+get_current_boot_id() {
+  if [[ -f /proc/sys/kernel/random/boot_id ]]; then
+    tr -d '-\n\r ' < /proc/sys/kernel/random/boot_id 2>/dev/null || echo "unknown"
+  else
+    echo "unknown"
+  fi
+}
+
+# Helper: Determine if this run should be a full boot-sweep
+is_boot_sweep_needed() {
+  if [[ "${FORCE_BOOT_SWEEP}" == "true" ]]; then
+    return 0
+  fi
+
+  local uptime_sec
+  uptime_sec=$(get_uptime_seconds)
+  if [[ "${uptime_sec}" -lt 120 ]]; then
+    return 0
+  fi
+
+  local current_boot
+  current_boot=$(get_current_boot_id)
+  if [[ ! -f "${BOOT_FILE}" ]]; then
+    return 0
+  fi
+
+  local recorded_boot
+  recorded_boot=$(tr -d '-\n\r ' < "${BOOT_FILE}" 2>/dev/null || echo "")
+  if [[ -z "${recorded_boot}" || "${recorded_boot}" != "${current_boot}" ]]; then
+    return 0
+  fi
+
+  return 1
 }
 
 # Helper: Classify event source from raw JSON object
@@ -137,7 +191,12 @@ launch_viewer() {
   local target_user="$2"
   local target_disp="$3"
 
-  local view_cmd="pkexec journalctl --cursor=\"${cursor}\" -n 50 -xb; echo; read -n 1 -s -r -p 'Press any key to close...'"
+  local view_cmd=""
+  if [[ -n "${cursor}" ]]; then
+    view_cmd="pkexec journalctl --cursor=\"${cursor}\" -n 50 -xb; echo; read -n 1 -s -r -p 'Press any key to close...'"
+  else
+    view_cmd="pkexec journalctl -b -p 0..4; echo; read -n 1 -s -r -p 'Press any key to close...'"
+  fi
 
   if [[ $(id -u) -eq 0 && -n "${target_user}" && "${target_user}" != "root" ]]; then
     su - "${target_user}" -c "DISPLAY='${target_disp}' xfce4-terminal --title='warnify: System Warning Details' -e \"bash -c '${view_cmd}'\"" >/dev/null 2>&1 &
@@ -192,27 +251,30 @@ send_notification() {
 
 # Core: Process log query
 scan_journal() {
+  local is_boot_sweep=false
+  if is_boot_sweep_needed; then
+    is_boot_sweep=true
+  fi
+
   local journal_args=("-b" "-p" "${PRIORITY}" "-o" "json")
 
-  if [[ -f "${CURSOR_FILE}" && -s "${CURSOR_FILE}" ]]; then
-    local saved_cursor
-    saved_cursor=$(cat "${CURSOR_FILE}" | tr -d '\n\r ')
-    if [[ -n "${saved_cursor}" ]]; then
-      journal_args+=("--after-cursor=${saved_cursor}")
+  if [[ "${is_boot_sweep}" == "true" ]]; then
+    # Full boot sweep: inspect all boot warnings from time 0 to now
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      echo "[warnify] (dry-run) Mode: Full boot-sweep (scanning entire boot log from startup)"
     fi
   else
-    # If no cursor file exists yet, start from current boot tail so we don't alert on past history
-    # Save the current end cursor first
-    mkdir -p "$(dirname "${CURSOR_FILE}")"
-    local initial_cursor
-    initial_cursor=$(journalctl -b -n 1 --show-cursor 2>/dev/null | grep -E '^-- cursor:' | awk '{print $3}' || true)
-    if [[ -n "${initial_cursor}" ]]; then
-      if [[ "${DRY_RUN}" != "true" ]]; then
-        echo "${initial_cursor}" > "${CURSOR_FILE}"
-      else
-        echo "[warnify] (dry-run) Initial cursor position: ${initial_cursor}"
+    # Routine 2-minute incremental scan: restrict to window + cursor
+    journal_args+=("--since=${SCAN_WINDOW}")
+    if [[ -f "${CURSOR_FILE}" && -s "${CURSOR_FILE}" ]]; then
+      local saved_cursor
+      saved_cursor=$(tr -d '\n\r ' < "${CURSOR_FILE}")
+      if [[ -n "${saved_cursor}" ]]; then
+        journal_args+=("--after-cursor=${saved_cursor}")
       fi
-      return 0
+    fi
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      echo "[warnify] (dry-run) Mode: 2-minute incremental window (--since=${SCAN_WINDOW})"
     fi
   fi
 
@@ -226,13 +288,18 @@ scan_journal() {
   local count="${#raw_events[@]}"
   if [[ "${count}" -eq 0 ]]; then
     if [[ "${DRY_RUN}" == "true" ]]; then
-      echo "[warnify] No new warnings or errors detected since cursor."
+      echo "[warnify] No new warnings or errors detected."
+    fi
+    # If this was a successful boot sweep, record the boot ID so we switch to incremental
+    if [[ "${is_boot_sweep}" == "true" && "${DRY_RUN}" != "true" ]]; then
+      mkdir -p "$(dirname "${BOOT_FILE}")"
+      get_current_boot_id > "${BOOT_FILE}"
     fi
     return 0
   fi
 
   if [[ "${DRY_RUN}" == "true" ]]; then
-    echo "[warnify] Detected ${count} new warning/error event(s):"
+    echo "[warnify] Detected ${count} warning/error event(s):"
   fi
 
   local first_cursor=""
@@ -267,25 +334,32 @@ scan_journal() {
     local title=""
     local body=""
 
-    if [[ "${count}" -eq 1 ]]; then
+    if [[ "${is_boot_sweep}" == "true" ]]; then
+      local summary
+      summary=$(printf "%s\n" "${categories[@]}" | sort | uniq -c | awk '{print $2 ": " $1}' | paste -sd ", " -)
+      title="⚠️ Boot Warnings: ${count} Events Detected"
+      body="Boot sweep analyzed all warnings from startup to now.\nBreakdown: ${summary}\nLatest: ${last_msg:0:100}"
+    elif [[ "${count}" -eq 1 ]]; then
       title="⚠️ System Warning: [${last_source}]"
       body="Time: ${last_time}\nSource: ${last_source}\n\n${last_msg:0:140}"
     else
-      # Summarize categories
+      # Summarize categories for 2-minute cycle
       local summary
       summary=$(printf "%s\n" "${categories[@]}" | sort | uniq -c | awk '{print $2 ": " $1}' | paste -sd ", " -)
-      title="⚠️ ${count} System Warnings Detected"
+      title="⚠️ ${count} New Warnings in Last 2 Minutes"
       body="Time: ${last_time}\nBreakdown: ${summary}\nLatest: ${last_msg:0:100}"
     fi
 
-    # Dispatch notification asynchronously so cursor update is immediate
+    # Dispatch notification asynchronously
     send_notification "${title}" "${body}" "${first_cursor}" &
 
-    # Update cursor state
+    # Update cursor state and record boot ID
+    mkdir -p "$(dirname "${CURSOR_FILE}")"
     if [[ -n "${last_cursor}" ]]; then
-      mkdir -p "$(dirname "${CURSOR_FILE}")"
       echo "${last_cursor}" > "${CURSOR_FILE}"
     fi
+    mkdir -p "$(dirname "${BOOT_FILE}")"
+    get_current_boot_id > "${BOOT_FILE}"
   fi
 }
 
@@ -308,11 +382,12 @@ WantedBy=multi-user.target
 
 === /etc/systemd/system/warnify.timer ===
 [Unit]
-Description=warnify - Run journal warning monitor every minute
+Description=warnify - Run journal warning monitor every 2 minutes (with startup trigger)
 After=network.target
 
 [Timer]
-OnCalendar=*:0/1
+OnBootSec=1min
+OnUnitActiveSec=2min
 AccuracySec=5s
 Persistent=true
 
@@ -349,11 +424,12 @@ EOF
 
   cat > "${timer_file}" <<EOF
 [Unit]
-Description=warnify - Run journal warning monitor every minute
+Description=warnify - Run journal warning monitor every 2 minutes (with startup trigger)
 After=network.target
 
 [Timer]
-OnCalendar=*:0/1
+OnBootSec=1min
+OnUnitActiveSec=2min
 AccuracySec=5s
 Persistent=true
 
@@ -365,7 +441,7 @@ EOF
   chmod 644 "${service_file}" "${timer_file}"
   systemctl daemon-reload
   systemctl enable --now warnify.timer
-  echo "Successfully installed and enabled warnify.timer (running every 1 minute)."
+  echo "Successfully installed and enabled warnify.timer (running 1 min after boot, then every 2 minutes)."
   systemctl list-timers warnify.timer --no-pager
 }
 
@@ -388,7 +464,14 @@ show_status() {
   echo "=== warnify Status ==="
   echo "Version: ${VERSION}"
   echo "Script path: ${SCRIPT_DIR}/warnify.sh"
-  echo "Cursor file: ${CURSOR_FILE}"
+  echo "Uptime: $(get_uptime_seconds)s"
+  echo "Current boot ID: $(get_current_boot_id)"
+  echo "State directory: ${STATE_DIR}"
+  if [[ -f "${BOOT_FILE}" ]]; then
+    echo "Recorded boot ID: $(cat "${BOOT_FILE}")"
+  else
+    echo "Recorded boot ID: None (will trigger boot-sweep on next run)"
+  fi
   if [[ -f "${CURSOR_FILE}" ]]; then
     echo "Cursor state: $(cat "${CURSOR_FILE}")"
   else
@@ -416,8 +499,16 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       shift
       ;;
+    -b|--boot-sweep)
+      FORCE_BOOT_SWEEP=true
+      shift
+      ;;
     -o|--once)
       ONCE_MODE=true
+      shift
+      ;;
+    -D|--daemon)
+      DAEMON_MODE=true
       shift
       ;;
     -c|--cursor-file)
@@ -426,6 +517,16 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       CURSOR_FILE="$2"
+      shift 2
+      ;;
+    --state-dir)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --state-dir requires a directory path." >&2
+        exit 1
+      fi
+      STATE_DIR="$2"
+      CURSOR_FILE="${STATE_DIR}/cursor"
+      BOOT_FILE="${STATE_DIR}/boot_id"
       shift 2
       ;;
     --priority)
@@ -461,14 +562,12 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     --test-classify)
-      # Internal test helper: read stdin and classify
       while IFS= read -r line; do
         classify_event "$line"
       done
       exit 0
       ;;
     --test-process-events)
-      # Internal test helper: takes cursor file and processes events from stdin
       if [[ -z "${2:-}" ]]; then
         echo "Error: --test-process-events requires a cursor file." >&2
         exit 1
@@ -491,4 +590,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 check_deps
-scan_journal
+
+if [[ "${DAEMON_MODE}" == "true" ]]; then
+  echo "[warnify] Starting foreground daemon loop (interval: ${INTERVAL_SECS}s)..."
+  while true; do
+    scan_journal
+    sleep "${INTERVAL_SECS}"
+  done
+else
+  scan_journal
+fi

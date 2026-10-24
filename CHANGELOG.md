@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
+### Added
+
+- Startup boot-sweep mode: Automatically detects system reboots and uptime under 2 minutes, scanning all warning/error logs from startup to now (`journalctl -b -p 0..4`).
+- Bounded 2-minute incremental scan window (`--since="3 minutes ago"`) combined with `--after-cursor` state tracking to prevent scanning the full historical journal repeatedly.
+- System boot ID tracking via `/proc/sys/kernel/random/boot_id` stored in `state-dir/boot_id` for reliable reboot detection.
+- Updated systemd timer configuration with `OnBootSec=1min` (startup trigger) and `OnUnitActiveSec=2min` (2-minute periodic interval).
+- Added `-D, --daemon` mode flag to run as a continuous foreground loop with 120s sleep intervals.
+- Added `-b, --boot-sweep` flag to manually force a full boot warning sweep.
+- Expanded automated test suite in `test_warnify.sh` to 23 tests, covering boot detection, boot sweep mode, and updated systemd intervals.
+
 ## [0.1.0] - 2026-10-24
 
 ### Added
@@ -16,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop notifications (`notify-send -u critical`) with penguin icon (`assets/penguin.png`) and `-A open="Open Log"` button.
 - Notification burst batching to summarize multiple warnings occurring in the same interval.
 - Interactive viewer launcher in `xfce4-terminal` invoking `pkexec journalctl --cursor=... -n 50 -xb` on action click.
-- Systemd automation templates: `systemd/warnify.service` and `systemd/warnify.timer` configured for 1-minute intervals (`OnCalendar=*:0/1`).
+- Systemd automation templates: `systemd/warnify.service` and `systemd/warnify.timer`.
 - CLI commands: `--dry-run`, `--once`, `--cursor-file`, `--priority`, `--status`, `--install-systemd`, `--uninstall-systemd`, and `--print-systemd-units`.
-- Automated test suite `test_warnify.sh` with 16 automated tests covering syntax, arguments, parsing, cursor state, and unit definitions.
+- Automated test suite `test_warnify.sh`.
 - Local user symlink at `~/.local/bin/,warnify.sh`.

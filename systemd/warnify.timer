@@ -1,9 +1,10 @@
 [Unit]
-Description=warnify - Run journal warning monitor every minute
+Description=warnify - Run journal warning monitor every 2 minutes (with startup trigger)
 After=network.target
 
 [Timer]
-OnCalendar=*:0/1
+OnBootSec=1min
+OnUnitActiveSec=2min
 AccuracySec=5s
 Persistent=true
 
