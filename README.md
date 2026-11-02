@@ -56,7 +56,7 @@ warnify [options]
 
 Options:
   -h, --help               Show this help message and exit
-  -v, --version            Display version information (v0.2.0)
+  -v, --version            Display version information (v0.2.1)
   -o, --once               Run a single log scan cycle and exit (default)
   -D, --daemon             Run continuously as a foreground daemon (scans every 2 minutes)
   -d, --dry-run            Scan logs and print matching events to stdout without notifying or advancing cursor

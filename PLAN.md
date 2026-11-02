@@ -169,6 +169,44 @@ Status: Completed and verified
 
 ---
 
+## 0.2.1 — Bash Triage: Boot Detection Hotfix, Streaming JQ Parser, and Test Stabilization
+Status: Completed and verified
+
+### 0.2.1.1 — Boot ID Detection & Character Parsing Hotfix
+- [x] Task: Fix `tr` argument syntax error in boot ID parsing
+  - [x] **Step 1:** Replace `tr -d '-\n\r '` with `tr -d '[:space:]-'` in `get_current_boot_id()` and `is_boot_sweep_needed()`.
+    - File: `warnify.sh`
+    - Command: `./warnify.sh --status`
+  - [x] **Step 2:** Add assertion in `test_warnify.sh` ensuring `Current boot ID:` never resolves to `"unknown"`.
+    - File: `test_warnify.sh`
+    - Command: `./test_warnify.sh`
+
+### 0.2.1.2 — Single-Pass Streaming JQ Parser
+- [x] Task: Eliminate the 200,000+ process fork loop in `scan_journal()`
+  - [x] **Step 1:** Refactor `scan_journal()` to stream `journalctl` directly into a single `jq -s` pipeline.
+    - File: `warnify.sh`
+    - Command: `./warnify.sh --dry-run`
+  - [x] **Step 2:** Cap boot sweep journal extraction to `-n 1000` to prevent memory spikes on long-running systems.
+    - File: `warnify.sh`
+    - Command: `./warnify.sh --boot-sweep --dry-run`
+  - [x] **Step 3:** Aggregate top-5 category counts to prevent notification buffer bloat.
+    - File: `warnify.sh`
+    - Command: `./warnify.sh --dry-run`
+
+### 0.2.1.3 — Test Suite & Release Verification
+- [x] Task: Verify test suite execution and bump release metadata
+  - [x] **Step 1:** Update `test_warnify.sh` and verify all 24 tests pass in < 2s.
+    - File: `test_warnify.sh`
+    - Command: `./test_warnify.sh`
+  - [x] **Step 2:** Bump version to `0.2.1` in `VERSION.md`, `warnify.sh`, and `README.md`.
+    - File: `VERSION.md`, `warnify.sh`, `README.md`
+    - Command: `./warnify.sh --version`
+  - [x] **Step 3:** Update `CHANGELOG.md`, `ISSUES.md`, and `HANDOFF.md`.
+    - File: `CHANGELOG.md`, `ISSUES.md`, `HANDOFF.md`
+    - Command: `git status`
+
+---
+
 ## Complexity Assessment & Go Migration Policy
 
 If the script's logic, concurrency, data structures, or state management becomes too complicated for clean Bash maintenance (exceeding 500-1000 lines), transition the project to a compiled **Go** application using `charmbracelet/bubbletea`, `charmbracelet/lipgloss`, and `charmbracelet/bubbles`.

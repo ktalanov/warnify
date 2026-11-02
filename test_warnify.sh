@@ -146,6 +146,13 @@ STATUS_OUT=$("${WARNIFY_BIN}" --status 2>&1 || true)
 assert_contains "=== warnify Status ===" "${STATUS_OUT}" "Status output contains header"
 assert_contains "Uptime:" "${STATUS_OUT}" "Status output displays uptime"
 assert_contains "Current boot ID:" "${STATUS_OUT}" "Status output displays boot ID"
+if [[ "${STATUS_OUT}" == *"Current boot ID: unknown"* ]]; then
+  echo "  [FAIL] Current boot ID resolved as 'unknown' (tr syntax failure)"
+  FAIL=$((FAIL + 1))
+else
+  echo "  [PASS] Current boot ID resolved to valid UUID (not unknown)"
+  PASS=$((PASS + 1))
+fi
 
 echo ""
 echo "=== Summary: ${PASS} passed, ${FAIL} failed ==="

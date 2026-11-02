@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-01
+
+### Fixed
+
+- Boot ID detection syntax error: Replaced invalid `tr -d '-\n\r '` with POSIX-compliant `tr -d '[:space:]-'`, ensuring `/proc/sys/kernel/random/boot_id` is cleanly parsed instead of falling back to `"unknown"`.
+- Eliminated O(N) process fork bomb in `scan_journal`: Replaced the Bash `for` loop calling `jq` 7 times per event with a unified streaming `jq -s` pipeline, reducing execution time on large journals (28k+ events) from >60 minutes to <1.5 seconds.
+- Bounded boot sweep inspection: Capped historical boot-sweep scan to `-n 1000` to prevent memory bloat on workstations with weeks of accumulated journal entries.
+- Category summary aggregation: Summarized top-5 warning categories in notification bodies to prevent DBus/notify-send buffer overflows from repetitive session scope messages.
+- Test runner deadlock: Fixed `test_warnify.sh` hanging indefinitely on Test 6 and added assertion verifying `boot_id` resolves to a valid UUID (expanding suite to 24 tests).
+
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

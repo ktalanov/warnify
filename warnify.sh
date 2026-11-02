@@ -4,7 +4,7 @@
 # License: MIT
 set -euo pipefail
 
-VERSION="0.2.0"
+VERSION="0.2.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ICON_FILE="${SCRIPT_DIR}/assets/penguin.png"
 
@@ -87,7 +87,7 @@ get_uptime_seconds() {
 # Helper: Get system boot ID
 get_current_boot_id() {
   if [[ -f /proc/sys/kernel/random/boot_id ]]; then
-    tr -d '-\n\r ' < /proc/sys/kernel/random/boot_id 2>/dev/null || echo "unknown"
+    tr -d '[:space:]-' < /proc/sys/kernel/random/boot_id 2>/dev/null || echo "unknown"
   else
     echo "unknown"
   fi
@@ -112,7 +112,7 @@ is_boot_sweep_needed() {
   fi
 
   local recorded_boot
-  recorded_boot=$(tr -d '-\n\r ' < "${BOOT_FILE}" 2>/dev/null || echo "")
+  recorded_boot=$(tr -d '[:space:]-' < "${BOOT_FILE}" 2>/dev/null || echo "")
   if [[ -z "${recorded_boot}" || "${recorded_boot}" != "${current_boot}" ]]; then
     return 0
   fi
@@ -123,23 +123,12 @@ is_boot_sweep_needed() {
 # Helper: Classify event source from raw JSON object
 classify_event() {
   local json_line="$1"
-  local transport unit syslog_id comm
-  transport=$(echo "${json_line}" | jq -r '._TRANSPORT // empty')
-  unit=$(echo "${json_line}" | jq -r '._SYSTEMD_UNIT // empty')
-  syslog_id=$(echo "${json_line}" | jq -r '.SYSLOG_IDENTIFIER // empty')
-  comm=$(echo "${json_line}" | jq -r '._COMM // empty')
-
-  if [[ "${transport}" == "kernel" ]]; then
-    echo "Kernel (dmesg)"
-  elif [[ -n "${unit}" ]]; then
-    echo "${unit}"
-  elif [[ -n "${syslog_id}" ]]; then
-    echo "${syslog_id}"
-  elif [[ -n "${comm}" ]]; then
-    echo "${comm}"
-  else
-    echo "system"
-  fi
+  echo "${json_line}" | jq -r '
+    if ._TRANSPORT == "kernel" then "Kernel (dmesg)"
+    elif (._SYSTEMD_UNIT // "") != "" then ._SYSTEMD_UNIT
+    elif (.SYSLOG_IDENTIFIER // "") != "" then .SYSLOG_IDENTIFIER
+    elif (._COMM // "") != "" then ._COMM
+    else "system" end'
 }
 
 # Helper: Convert journal realtime timestamp (microseconds) to human-readable string
@@ -259,7 +248,8 @@ scan_journal() {
   local journal_args=("-b" "-p" "${PRIORITY}" "-o" "json")
 
   if [[ "${is_boot_sweep}" == "true" ]]; then
-    # Full boot sweep: inspect all boot warnings from time 0 to now
+    # Full boot sweep: inspect boot warnings (capped to 1000 to avoid runaway memory)
+    journal_args+=("-n" "1000")
     if [[ "${DRY_RUN}" == "true" ]]; then
       echo "[warnify] (dry-run) Mode: Full boot-sweep (scanning entire boot log from startup)"
     fi
@@ -268,7 +258,7 @@ scan_journal() {
     journal_args+=("--since=${SCAN_WINDOW}")
     if [[ -f "${CURSOR_FILE}" && -s "${CURSOR_FILE}" ]]; then
       local saved_cursor
-      saved_cursor=$(tr -d '\n\r ' < "${CURSOR_FILE}")
+      saved_cursor=$(tr -d '[:space:]' < "${CURSOR_FILE}")
       if [[ -n "${saved_cursor}" ]]; then
         journal_args+=("--after-cursor=${saved_cursor}")
       fi
@@ -278,14 +268,57 @@ scan_journal() {
     fi
   fi
 
-  local raw_events=()
-  while IFS= read -r line; do
-    if [[ -n "${line}" ]]; then
-      raw_events+=("${line}")
-    fi
-  done < <(journalctl "${journal_args[@]}" 2>/dev/null || true)
+  local parsed_json
+  parsed_json=$(journalctl "${journal_args[@]}" 2>/dev/null | jq -s '
+    def classify:
+      if ._TRANSPORT == "kernel" then "Kernel (dmesg)"
+      elif (._SYSTEMD_UNIT // "") != "" then ._SYSTEMD_UNIT
+      elif (.SYSLOG_IDENTIFIER // "") != "" then .SYSLOG_IDENTIFIER
+      elif (._COMM // "") != "" then ._COMM
+      else "system" end;
 
-  local count="${#raw_events[@]}"
+    if length == 0 then
+      {count: 0}
+    else
+      {
+        count: length,
+        first_cursor: .[0].__CURSOR,
+        last_cursor: .[-1].__CURSOR,
+        last_source: (.[-1] | classify),
+        last_time: .[-1].__REALTIME_TIMESTAMP,
+        last_msg: ((.[-1].MESSAGE // "") | gsub("[\r\n\t]"; " ") | .[0:140]),
+        summary: (
+          reduce .[] as $item ({}; .[$item | classify] = (.[$item | classify] // 0) + 1)
+          | to_entries
+          | sort_by(-.value)
+          | .[:5]
+          | map("\(.key): \(.value)")
+          | join(", ")
+        ),
+        events_sample: (
+          if length <= 50 then
+            map({
+              cursor: (.__CURSOR // ""),
+              source: classify,
+              time: (.__REALTIME_TIMESTAMP // ""),
+              msg: ((.MESSAGE // "") | gsub("[\r\n\t]"; " ") | .[0:80])
+            })
+          else
+            (.[-50:] | map({
+              cursor: (.__CURSOR // ""),
+              source: classify,
+              time: (.__REALTIME_TIMESTAMP // ""),
+              msg: ((.MESSAGE // "") | gsub("[\r\n\t]"; " ") | .[0:80])
+            }))
+          end
+        )
+      }
+    end
+  ' 2>/dev/null || echo '{"count": 0}')
+
+  local count
+  count=$(echo "${parsed_json}" | jq -r '.count // 0')
+
   if [[ "${count}" -eq 0 ]]; then
     if [[ "${DRY_RUN}" == "true" ]]; then
       echo "[warnify] No new warnings or errors detected."
@@ -302,32 +335,26 @@ scan_journal() {
     echo "[warnify] Detected ${count} warning/error event(s):"
   fi
 
-  local first_cursor=""
-  local last_cursor=""
-  local categories=()
-  local last_msg=""
-  local last_time=""
-  local last_source=""
+  local first_cursor last_cursor last_source last_time_usec summary
+  first_cursor=$(echo "${parsed_json}" | jq -r '.first_cursor // empty')
+  last_cursor=$(echo "${parsed_json}" | jq -r '.last_cursor // empty')
+  last_source=$(echo "${parsed_json}" | jq -r '.last_source // "system"')
+  last_time_usec=$(echo "${parsed_json}" | jq -r '.last_time // empty')
+  summary=$(echo "${parsed_json}" | jq -r '.summary // ""')
+  local last_msg
+  last_msg=$(echo "${parsed_json}" | jq -r '.last_msg // ""')
+  local last_time
+  last_time=$(format_timestamp "${last_time_usec}")
 
-  for event in "${raw_events[@]}"; do
-    local cur msg raw_time source
-    cur=$(echo "${event}" | jq -r '.__CURSOR // empty')
-    msg=$(echo "${event}" | jq -r '.MESSAGE // empty')
-    raw_time=$(echo "${event}" | jq -r '.__REALTIME_TIMESTAMP // empty')
-    source=$(classify_event "${event}")
-
-    [[ -z "${first_cursor}" ]] && first_cursor="${cur}"
-    [[ -n "${cur}" ]] && last_cursor="${cur}"
-
-    categories+=("${source}")
-    last_msg="${msg}"
-    last_time=$(format_timestamp "${raw_time}")
-    last_source="${source}"
-
-    if [[ "${DRY_RUN}" == "true" ]]; then
-      echo "  • [${last_time}] [${source}] ${msg:0:80}"
-    fi
-  done
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    while IFS=$'\t' read -r s_cur s_source s_time s_msg; do
+      if [[ -n "${s_source}" ]]; then
+        local formatted_time
+        formatted_time=$(format_timestamp "${s_time}")
+        echo "  • [${formatted_time}] [${s_source}] ${s_msg}"
+      fi
+    done < <(echo "${parsed_json}" | jq -r '.events_sample[]? | [.cursor, .source, .time, .msg] | @tsv')
+  fi
 
   # Build notification
   if [[ "${DRY_RUN}" != "true" ]]; then
@@ -335,17 +362,13 @@ scan_journal() {
     local body=""
 
     if [[ "${is_boot_sweep}" == "true" ]]; then
-      local summary
-      summary=$(printf "%s\n" "${categories[@]}" | sort | uniq -c | awk '{print $2 ": " $1}' | paste -sd ", " -)
       title="⚠️ Boot Warnings: ${count} Events Detected"
-      body="Boot sweep analyzed all warnings from startup to now.\nBreakdown: ${summary}\nLatest: ${last_msg:0:100}"
+      body="Boot sweep analyzed warnings from startup to now.\nBreakdown: ${summary}\nLatest: ${last_msg:0:100}"
     elif [[ "${count}" -eq 1 ]]; then
       title="⚠️ System Warning: [${last_source}]"
       body="Time: ${last_time}\nSource: ${last_source}\n\n${last_msg:0:140}"
     else
       # Summarize categories for 2-minute cycle
-      local summary
-      summary=$(printf "%s\n" "${categories[@]}" | sort | uniq -c | awk '{print $2 ": " $1}' | paste -sd ", " -)
       title="⚠️ ${count} New Warnings in Last 2 Minutes"
       body="Time: ${last_time}\nBreakdown: ${summary}\nLatest: ${last_msg:0:100}"
     fi
