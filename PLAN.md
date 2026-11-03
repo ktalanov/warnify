@@ -39,7 +39,6 @@ Only mark an item complete (`[x]`) when it is verifiable from code, automated te
 - **INV-04 (Zero External CDN / 100% Local):** All icons, scripts, units, reports, and documentation are entirely self-contained within the repository.
 - **INV-05 (Defensive Shell Standards):** All bash scripts must employ `set -euo pipefail`, handle missing commands gracefully, validate arguments, and pass `bash -n`.
 - **INV-06 (Go / Bubble Tea Complexity Threshold & Migration Invariant):** If concurrency, complex event filtering, or interactive TUI requirements exceed clean Bash maintainability (500+ lines), transition the core application to a compiled **Go** application (`charmbracelet/bubbletea` + `lipgloss` + `coreos/go-systemd`).
-- **INV-07 (Directory Preservation Invariant):** None of the documented repository directories (`assets/`, `systemd/`, `reports/`, `tmp/`) shall ever be placed in `.gitignore`. They must remain tracked or preserved in the workspace.
 
 ---
 
@@ -62,7 +61,6 @@ Only mark an item complete (`[x]`) when it is verifiable from code, automated te
 - [x] Created systemd units `systemd/warnify.service` and `systemd/warnify.timer` (`OnBootSec=1min`, `OnUnitActiveSec=2min`) and verified via `systemd-analyze verify`.
 - [x] Created symlink `/home/lenin/.local/bin/,warnify.sh` -> `/home/lenin/github/warnify/warnify.sh`.
 - [x] Archived visual diagnosis dossier in `reports/11-03-26-warnify-operational-readiness-report.md`.
-- [x] Created scratch directory `tmp/` (tracked via `tmp/.gitkeep`), verified excluded from `.gitignore`.
 
 ---
 

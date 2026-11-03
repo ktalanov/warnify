@@ -4,17 +4,31 @@
 
 `warnify` continuously monitors system logs (`journalctl`) for warnings, errors, and critical events with elevated privileges, sends rich desktop notifications into active graphical desktop sessions with an action button, and allows the user to inspect the underlying logs in `xfce4-terminal` using `pkexec` for authenticated access.
 
+> [!NOTE]
+> **Release Status (v0.2.1 Alpha):** This is the first version that is being released. It is still not ready for any sort of public consumption or general public use, but we are actively developing it, and part of the reason we're releasing it now is to establish our baseline, tag our progress, and see how far we've actually come.
+
 ---
 
 ## Features
 
-- **Startup Boot-Sweep:** On initial boot or when uptime is under 2 minutes, `warnify` performs a comprehensive sweep of **all** warning/error events from system startup to current time across all logs (`journalctl -b -p 0..4`), capturing kernel dmesg, system services, and userspace daemons.
+- **Startup Boot-Sweep:** On initial boot or when uptime is under 2 minutes, `warnify` performs a comprehensive sweep of warning/error events from system startup to current time across all logs (`journalctl -b -p 0..4 -n 1000`), capturing kernel dmesg, system services, and userspace daemons.
 - **Windowed 2-Minute Incremental Scans:** For routine periodic checks, `warnify` restricts its scan to the last 2 minutes + buffer (`--since="3 minutes ago"`) combined with `--after-cursor` tracking, ensuring it never rescans the full historical journal over and over.
 - **Stateful Cursor & Boot Tracking:** Records cursor and boot ID state (`/var/lib/warnify/cursor`, `/var/lib/warnify/boot_id`) to automatically detect system reboots and prevent duplicate notifications.
-- **Desktop Session Notification:** Dispatches critical notifications (`notify-send -u critical`) to the active graphical session, complete with a penguin icon, formatted event timestamps, and log source categorization (`[Kernel (dmesg)]`, `[bluetooth.service]`, etc.).
+- **Desktop Session Notification:** Dispatches critical notifications (`notify-send -u critical`) to the active graphical session, complete with a penguin icon, formatted event timestamps, top-5 category summary, and an `Open` action button (`-A open=Open`).
 - **Notification Flood Protection:** Batches bursts occurring in the same check window into a concise summary notification.
 - **PolicyKit Privilege Elevation:** Provides an interactive `Open` button on notifications that spawns `xfce4-terminal -e pkexec journalctl ...`, ensuring explicit authorization via PolicyKit when viewing privileged log details.
 - **Flexible Execution Modes:** Runs either via systemd timer (`warnify.timer` triggered 1 min after boot, then every 2 minutes), via cron, or as a standalone foreground daemon (`warnify --daemon`).
+
+---
+
+## Staged Evolution Roadmap
+
+The way we're going to develop it is:
+
+1. **v0.3.0 in Bash (Stabilize the Contract):** Build the regex ignore filter (`ignore.conf`) and warning burst cooldown in Bash first. That allows us to test filter behavior and CLI flags in 50 lines of shell before committing to a compiled codebase.
+2. **v0.4.0 in Go (Core Transition):** Once the filtering contract is proven, execute the Go rewrite. This replaces `warnify.sh` with a native `warnify` binary (<10MB static binary, microsecond `sdjournal` reads, zero subprocess forks).
+3. **v0.5.0 in Go (Bubble Tea TUI):** Embed the full interactive log browser (`warnify view`) built with Charm Bubble Tea.
+4. **v1.0.0 (Production MVP):** Multi-seat broadcast, audio alerts, and native RPM/COPR packaging.
 
 ---
 
@@ -86,17 +100,22 @@ warnify/
 ├── assets/         # Offline branding, visual icons (penguin.png, penguin.svg)
 ├── systemd/        # Service and timer unit configuration templates
 ├── reports/        # Diagnostic reports and operational dossiers (e.g. 11-03-26-warnify-operational-readiness-report.md)
-├── tmp/            # Scratch directory for holding arbitrary, untracked, or temporary files
 ├── warnify.sh      # Core monitor, notifier, and systemd management script
 └── test_warnify.sh # Automated test suite (24 tests)
 ```
 
-> [!IMPORTANT]
-> **Directory Preservation Invariant:** None of the repository directories documented above (`assets/`, `systemd/`, `reports/`, `tmp/`) should ever be added to `.gitignore`. They remain explicitly tracked or preserved in the workspace.
+---
+
+## GitHub Synchronization & Cross-Model Ledgers
+
+`warnify` uses the Igloo v2 issue-synchronization pattern (`sync_issue.py`) to coordinate state, test evidence, and execution handoffs between human developers and autonomous AI coding agents across multiple platforms.
+
+- **Global Sync Ledger ([Issue #1](https://github.com/ktalanov/warnify/issues/1)):** The standing project-wide coordination thread labeled `sync-global` and `sync`. It tracks broad architectural shifts, multi-milestone direction, and repository-wide handoffs.
+- **Version Sync Ledger ([Issue #2](https://github.com/ktalanov/warnify/issues/2)):** The release-specific ledger labeled `sync` dedicated to tracking active work, test receipts, and verification evidence for version `v0.2.1`.
 
 ---
 
-## Project Documents & Synchronization
+## Project Documents
 
 - [AGENTS.md](AGENTS.md) — Package-specific working rules and invariants
 - [PLAN.md](PLAN.md) — Milestones, version roadmap, and verified tasks
@@ -106,6 +125,3 @@ warnify/
 - [VERSION_GUIDE.md](VERSION_GUIDE.md) — Canonical SemVer guide
 - [GUM_README.md](GUM_README.md) — Charm Gum reference
 - [ISSUES.md](ISSUES.md) — Defect and enhancement ledger
-- [Global Sync Ledger](https://github.com/ktalanov/warnify/issues/1) — Cross-model GitHub handoff issue #1
-- [Version Sync Ledger (v0.2.1)](https://github.com/ktalanov/warnify/issues/2) — Release handoff issue #2
-

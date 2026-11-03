@@ -1,11 +1,15 @@
 # AGENTS.md — warnify Project Rules & Invariants
 
+> [!IMPORTANT]
+> **PRIMARY LLM COORDINATION & HANDOFF LEDGER:**
+> All autonomous agents operating in this repository must inspect and synchronize with the **Global Sync Ledger**:
+> 👉 **[GitHub Issue #1: `[Handoff Ledger] [PRE-MVP] GLOBAL`](https://github.com/ktalanov/warnify/issues/1)** (labels: `sync-global`, `sync`).
+> Active release receipts and evidence are posted to **[GitHub Issue #2 (v0.2.1)](https://github.com/ktalanov/warnify/issues/2)**.
+
 > **Package:** `warnify` — Privileged journal warning monitor with desktop notifications and terminal log viewer.
 > **Repository:** Local Git repository tracking GitHub upstream (`https://github.com/ktalanov/warnify`).
 > **Symlink:** `~/.local/bin/,warnify.sh` -> `/home/lenin/github/warnify/warnify.sh`.
 > **Current Version:** `v0.2.1`.
-> **Global Handoff Ledger:** [Issue #1 (`sync-global`, `sync`)](https://github.com/ktalanov/warnify/issues/1).
-> **Version Handoff Ledger:** [Issue #2 (`sync`)](https://github.com/ktalanov/warnify/issues/2).
 
 ---
 
@@ -28,13 +32,6 @@
    - Future v0.5.0 milestone replaces the pager with a native Charm Bubble Tea TUI browser.
 4. **Automation / Timer:**
    - Systemd units: `/etc/systemd/system/warnify.service` (oneshot) and `/etc/systemd/system/warnify.timer` (`OnBootSec=1min`, `OnUnitActiveSec=2min`).
-
----
-
-## Directory & File Invariants
-
-- **INV-07 (Directory Preservation Invariant):** All repository directories documented in `README.md` (`assets/`, `systemd/`, `reports/`, `tmp/`) must **never** be placed in `.gitignore`. They must remain tracked or preserved in the workspace.
-- `tmp/` is dedicated for holding scratch, exploratory, or temporary files.
 
 ---
 

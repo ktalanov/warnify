@@ -78,6 +78,3 @@ Expand `warnify` from a single-workstation desktop monitor into an extensible ob
 - **Context:** Deciding whether to rewrite immediately in Go or add filtering features first.
 - **Decision:** Implement **v0.3.0 in Bash** first (regex ignore lists and cooldown logic) to lock down the exact configuration syntax, filter behavior, and user experience in rapid shell script. Perform the **Go core rewrite in v0.4.0** once the domain requirements are 100% frozen.
 
-### DEC-003: Directory Policy & Git Tracking
-- **Context:** Need a scratch directory (`tmp/`) for random files and artifacts.
-- **Decision:** Create and track `tmp/` (via `.gitkeep`). Establish invariant that all documented directories in `README.md` (`assets/`, `systemd/`, `reports/`, `tmp/`) must **never** be added to `.gitignore`.
