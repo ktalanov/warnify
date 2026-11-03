@@ -79,7 +79,24 @@ Examples:
 
 ---
 
-## Project Documents
+## Repository Layout
+
+```text
+warnify/
+├── assets/         # Offline branding, visual icons (penguin.png, penguin.svg)
+├── systemd/        # Service and timer unit configuration templates
+├── reports/        # Diagnostic reports and operational dossiers (e.g. 11-03-26-warnify-operational-readiness-report.md)
+├── tmp/            # Scratch directory for holding arbitrary, untracked, or temporary files
+├── warnify.sh      # Core monitor, notifier, and systemd management script
+└── test_warnify.sh # Automated test suite (24 tests)
+```
+
+> [!IMPORTANT]
+> **Directory Preservation Invariant:** None of the repository directories documented above (`assets/`, `systemd/`, `reports/`, `tmp/`) should ever be added to `.gitignore`. They remain explicitly tracked or preserved in the workspace.
+
+---
+
+## Project Documents & Synchronization
 
 - [AGENTS.md](AGENTS.md) — Package-specific working rules and invariants
 - [PLAN.md](PLAN.md) — Milestones, version roadmap, and verified tasks
@@ -89,3 +106,6 @@ Examples:
 - [VERSION_GUIDE.md](VERSION_GUIDE.md) — Canonical SemVer guide
 - [GUM_README.md](GUM_README.md) — Charm Gum reference
 - [ISSUES.md](ISSUES.md) — Defect and enhancement ledger
+- [Global Sync Ledger](https://github.com/ktalanov/warnify/issues/1) — Cross-model GitHub handoff issue #1
+- [Version Sync Ledger (v0.2.1)](https://github.com/ktalanov/warnify/issues/2) — Release handoff issue #2
+

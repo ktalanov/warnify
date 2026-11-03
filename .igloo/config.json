@@ -1,0 +1,9 @@
+{
+  "sync_issue": 1,
+  "project_sync_issue": 1,
+  "version_sync_issues": {
+    "0.2.1": 2
+  },
+  "sync_repository": "ktalanov/warnify",
+  "sync_project_identity": "warnify"
+}
