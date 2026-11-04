@@ -13,6 +13,31 @@
 
 ---
 
+## Autonomous Agent Attribution Specification
+
+All autonomous agents operating in this repository must format **every authored GitHub issue, pull request, handoff receipt, and comment** according to the following mandatory attribution standard:
+
+1. **Header Prefix:**
+   Every post must begin on the first line with the robot emoji and exact model identifier:
+   ```markdown
+   🤖 Antigravity (<Model> (<Effort>))
+   ```
+   *Rules:*
+   - If the model name is unknown, do not guess; write `🤖 Antigravity (Unknown)`.
+   - If effort is unknown or unconfigured, leave effort blank (e.g., `🤖 Antigravity (Gemini-3.8)`).
+   - Example with known model and effort: `🤖 Antigravity (Gemini-3.8 (High))`.
+
+2. **Footer Sign-off & Banter Quote:**
+   Every post must conclude with a horizontal rule, model attribution, and a witty banter-style quote:
+   ```markdown
+   ---
+   🤔 — Antigravity (<Model> (<Effort>))
+
+   >"A humorous, banter-style quote related to this issue or commit" — me.
+   ```
+
+---
+
 ## Purpose & Architecture
 
 `warnify` is an automated system monitor that detects warnings, errors, and critical system events from `journalctl`, dispatches desktop notifications to the active desktop session, and provides a one-click action to view the error in an authenticated terminal log viewer.
